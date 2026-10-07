@@ -2,8 +2,17 @@
 // change in the same transaction, so retries cannot create half a payment.
 const isClientPayment = entry => entry?.payment_kind === 'client_payment';
 const PAYMENT_METHODS = [...BF,'Banco','Sin especificar'];
+function paymentProfileSelection(profile, client, jobId) {
+  return {profileId:profile?.id || '',client:profile?.name || client,
+    jobId:profile && !(profile.job_ids || []).includes(jobId) ? '' : jobId};
+}
+function validatePaymentProfile(data, profile) {
+  if (!data.profile_id) return;
+  if (!profile) throw new Error('La ficha del cliente ya no está disponible. Vuelve a elegir un cliente.');
+  if (data.job_id && !(profile.job_ids || []).includes(data.job_id)) throw new Error('El trabajo no pertenece a la ficha elegida. Revisa el cliente y el trabajo.');
+}
 function paymentPayload(form) {
-  const data = Object.fromEntries(['date','client','concept','category','job_id','payment_method','payment_notes'].map(key => [key,String(form.get(key) || '').trim()]));
+  const data = Object.fromEntries(['date','client','concept','category','profile_id','job_id','payment_method','payment_notes'].map(key => [key,String(form.get(key) || '').trim()]));
   data.amount_cents = fF(form.get('amount_cents'));
   data.payment_kind = 'client_payment';
   if (!xv(data.date)) throw new Error('Elige una fecha válida entre 2026 y 2100.');
@@ -58,6 +67,10 @@ const PaymentServices = {
       if (!entry && previous) {
         if (Object.keys(data).every(key=>previous[key]===data[key])) return;
         throw vw();
+      }
+      if (data.profile_id) {
+        const profileSnap=await tx.get(vm(tB('profiles'),data.profile_id));
+        validatePaymentProfile(data,profileSnap.exists()?profileSnap.data():null);
       }
       const oldPayment=isClientPayment(previous)?previous:null;
       const ids=[...new Set([oldPayment?.job_id,data.job_id].filter(Boolean))], jobs=new Map(), refs=new Map();
@@ -140,18 +153,35 @@ function IncomePicker({income,onClose,onPick}) {
 function PaymentEditor({entry,seed,jobs,online,onClose,onSaved}) {
   const h=crmEl,[busy,setBusy]=he.useState(false),[error,setError]=he.useState('');
   const [jobId,setJobId]=he.useState(entry?.job_id||seed?.id||''),[client,setClient]=he.useState(entry?.client||seed?.name||'');
+  const [profileId,setProfileId]=he.useState(entry?.profile_id||''),[profiles,setProfiles]=he.useState([]);
+  const [profilesLoaded,setProfilesLoaded]=he.useState(false),[profilesError,setProfilesError]=he.useState(''),[profilesRetry,setProfilesRetry]=he.useState(0);
+  const initialProfile=he.useRef(false);
+  he.useEffect(()=>CRMServices.subscribe(data=>{
+    setProfiles(data);setProfilesLoaded(true);setProfilesError('');
+    if(!initialProfile.current){
+      initialProfile.current=true;
+      if(!entry&&seed){const matches=data.filter(p=>(p.job_ids||[]).includes(seed.id));if(matches.length===1){setProfileId(matches[0].id);setClient(matches[0].name);}}
+    }
+  },err=>{setProfilesError(kl(err));setProfilesLoaded(false);}),[profilesRetry]);
+  const profile=profiles.find(p=>p.id===profileId), availableJobs=profile?crmJobs(profile,jobs):jobs;
+  function chooseProfile(id){const next=paymentProfileSelection(profiles.find(p=>p.id===id),client,jobId);setProfileId(next.profileId);setClient(next.client);setJobId(next.jobId);setIncluded(false);}
   const [included,setIncluded]=he.useState(false),newId=he.useRef(null);
   if(!newId.current)newId.current=entry?.id||PaymentServices.newId();
   const job=jobs.find(j=>j.id===jobId), canRecover=!!jobId&&!entry?.job_id;
   const defaultCategory=entry?.category||(seed?.type?.toLowerCase().includes('falla')?'Fallas':seed?.type?.toLowerCase().includes('boda')?'Bodas':'Otros');
-  async function save(event){event.preventDefault();if(busy)return;setBusy(true);setError('');try{const form=new FormData(event.currentTarget),data=paymentPayload(form);await PaymentServices.save(data,entry,newId.current,included&&canRecover);await onSaved();}catch(e){setError(kl(e));}finally{setBusy(false);}}
+  async function save(event){event.preventDefault();if(busy)return;setBusy(true);setError('');try{const form=new FormData(event.currentTarget),data=paymentPayload(form);validatePaymentProfile(data,profile);await PaymentServices.save(data,entry,newId.current,included&&canRecover);await onSaved();}catch(e){setError(kl(e));}finally{setBusy(false);}}
   return h(Iw,{title:entry?(isClientPayment(entry)?'Editar pago':'Recuperar pago de un ingreso'):'Nuevo pago',busy,onClose},
     h('form',{onSubmit:save},h('fieldset',{disabled:busy},h('div',{className:'formgrid'},
       h(Ll,{label:'Fecha del pago'},h('input',{type:'date',name:'date',required:true,min:'2026-01-01',max:'2100-12-31',defaultValue:entry?.date||dF(new Date().getFullYear())})),
       h(Ll,{label:'Importe del pago (€)'},h('input',{name:'amount_cents',inputMode:'decimal',required:true,maxLength:16,placeholder:'0,00',defaultValue:entry?(entry.amount_cents/100).toFixed(2).replace('.',','):''})),
-      h(Ll,{label:'Trabajo vinculado',full:true},h('select',{name:'job_id',value:jobId,onChange:e=>{const id=e.target.value;setJobId(id);setIncluded(false);if(!client)setClient(jobs.find(j=>j.id===id)?.name||'');}},h('option',{value:''},'Sin asignar — lo enlazaré más adelante'),jobs.map(j=>h('option',{key:j.id,value:j.id},`${j.name} · ${Mv(j.date)} · ${j.type||'Trabajo'}`)))),
-      h(Ll,{label:'Cliente'},h('input',{name:'client',required:true,maxLength:180,value:client,onChange:e=>setClient(e.target.value)})),
+      h(Ll,{label:'Cliente registrado',full:true},h('select',{'aria-label':'Cliente registrado',value:profileId,disabled:!profilesLoaded,onChange:e=>chooseProfile(e.target.value)},h('option',{value:''},profilesLoaded?'Seleccionar cliente o escribir el nombre abajo':'Cargando clientes…'),profileId&&!profile&&h('option',{value:profileId},entry?.client||'Cliente seleccionado'),profiles.map(p=>h('option',{key:p.id,value:p.id},p.name)))),
+      h('input',{type:'hidden',name:'profile_id',value:profileId}),
+      profilesError&&h('div',{className:'error',role:'alert'},'No se han podido cargar los clientes. ',h('button',{type:'button',className:'btn',onClick:()=>setProfilesRetry(n=>n+1)},'Reintentar clientes')),
+      profilesLoaded&&!profiles.length&&h('p',{className:'small muted'},'Todavía no hay fichas. Puedes escribir el nombre del cliente abajo.'),
+      h(Ll,{label:'Cliente'},h('input',{name:'client',required:true,maxLength:180,readOnly:!!profileId,value:profile?.name||client,onChange:e=>setClient(e.target.value)})),
       h(Ll,{label:'Concepto'},h('input',{name:'concept',maxLength:500,placeholder:'Señal, segundo pago, pago final…',defaultValue:entry?.concept||''})),
+      h(Ll,{label:'Trabajo vinculado',full:true},h('select',{name:'job_id',value:jobId,onChange:e=>{const id=e.target.value;setJobId(id);setIncluded(false);if(!client)setClient(jobs.find(j=>j.id===id)?.name||'');}},h('option',{value:''},'Sin asignar — lo enlazaré más adelante'),jobId&&!availableJobs.some(j=>j.id===jobId)&&h('option',{value:jobId,disabled:true},'Trabajo anterior: revisa la ficha vinculada'),availableJobs.map(j=>h('option',{key:j.id,value:j.id},`${j.name} · ${Mv(j.date)} · ${j.type||'Trabajo'}`)))),
+      profile&&!availableJobs.length&&h('p',{className:'small muted'},'Este cliente todavía no tiene trabajos vinculados. Puedes guardar el pago y asignarlo más adelante.'),
       h(Ll,{label:'Categoría'},h('select',{name:'category',defaultValue:defaultCategory},Aw.map(c=>h('option',{key:c},c)))),
       h(Ll,{label:'Forma de pago'},h('select',{name:'payment_method',defaultValue:entry?.payment_method||'Sin especificar'},PAYMENT_METHODS.map(m=>h('option',{key:m},m)))),
       h(Ll,{label:'Observaciones del pago',full:true},h('textarea',{name:'payment_notes',rows:3,maxLength:2000,defaultValue:entry?.payment_notes||''}))),

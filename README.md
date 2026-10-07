@@ -20,6 +20,8 @@ Las fichas se guardan en `accounts/{uid}/profiles/{id}`, con el mismo propietari
 
 **Pagos** reúne señales, anticipos y pagos finales con fecha, cliente, concepto, importe, categoría, forma de pago y observaciones. Un pago puede quedar sin asignar y enlazarse después con un trabajo de cualquier año. Los filtros y el CSV corresponden a la fecha del cobro.
 
+En **Nuevo pago**, el selector **Cliente registrado** carga las fichas existentes. Al seleccionar una, rellena su nombre y ofrece sus trabajos vinculados. La referencia `profile_id` conserva la elección al editar, aunque el cliente todavía no tenga trabajos. También se admite escribir el nombre de un cliente sin ficha. Cambiar de ficha retira cualquier trabajo que no pertenezca a ella; los pagos antiguos conservan sus datos.
+
 El pago es el mismo documento que su ingreso, identificado con `payment_kind: client_payment`, `job_id`, `payment_method` y `payment_notes`. Crear, editar, reasignar o eliminar un pago actualiza el ingreso y los importes del trabajo en una sola transacción de Firestore. Los formularios detectan cambios concurrentes, los reintentos de creación reutilizan el mismo ID y no se permiten cobros superiores al total del trabajo.
 
 **Vincular ingreso existente** recupera un ingreso sin duplicarlo. Si el importe ya estaba incluido en el campo Cobrado del trabajo, se marca esa casilla al enlazarlo por primera vez. Los trabajos conservan sus cobros anteriores y contabilizan por separado `payment_total_cents`; el cobrado manual no puede bajar de esa suma. Los trabajos con pagos vinculados no se pueden eliminar hasta desvincularlos. Editar un ingreso que procede de Pagos abre el formulario coordinado del pago.

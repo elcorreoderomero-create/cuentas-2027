@@ -13,7 +13,7 @@ const previewJobs=[
  {id:'demo1',date:'2026-10-01',name:'Cliente de ejemplo',type:'Sesión de fotografía',notes:'Datos ficticios de prueba.',total_cents:130000,paid_cents:26000,updated_at:'v1'},
  {id:'demo2',date:'2027-03-19',name:'Cliente de ejemplo',type:'Fallas',notes:'Segundo trabajo de prueba.',total_cents:90000,paid_cents:90000,updated_at:'v1'}
 ];
-let previewProfiles=[], profileListener=null, dataListener=null, previewVersion=1;
+let previewProfiles=[{id:'profileDemo',name:'Cliente de ejemplo',contact_name:'Contacto de prueba',job_ids:['demo1','demo2']},{id:'profileNoJob',name:'Cliente sin trabajo',job_ids:[]}], profileListener=null, dataListener=null, previewVersion=1;
 let previewIncome=[{id:'old1',date:'2026-10-02',client:'Cliente de prueba',concept:'Anticipo ya registrado',category:'Fallas',amount_cents:12500,updated_at:'v1'}];
 const previewData=()=>({income:previewIncome,expenses:[],clients:previewJobs,seconds:[]});
 oF=async()=>previewData();
@@ -27,6 +27,7 @@ CRMServices.save=async(data,entry)=>{
 uF=async(table,data,entry)=>{if(table!=='clients')throw Error('Solo trabajos de prueba');const index=previewJobs.findIndex(item=>item.id===entry.id);previewJobs[index]={...entry,...data};if(dataListener)dataListener(previewData())};
 PaymentServices.newId=()=>crypto.randomUUID();
 PaymentServices.save=async(data,entry,id,included=false)=>{
+ validatePaymentProfile(data,previewProfiles.find(p=>p.id===data.profile_id));
  const previous=previewIncome.find(p=>p.id===(entry?.id||id));
  if(entry&&previous.updated_at!==entry.updated_at)throw vw();
  const changes=paymentJobChanges(new Map(previewJobs.map(j=>[j.id,j])),isClientPayment(previous)?previous:null,data,included);

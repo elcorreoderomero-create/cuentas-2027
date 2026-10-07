@@ -13,7 +13,7 @@ service cloud.firestore {
       return d.user_id == uid && date(d.date) && d.created_at is timestamp && d.updated_at == request.time;
     }
     function validPayment(d,uid) {
-      return (!d.keys().hasAny(['payment_kind','job_id','payment_method','payment_notes']))
+      return (!d.keys().hasAny(['payment_kind','job_id','payment_method','payment_notes','profile_id']))
         || (d.keys().hasAll(['payment_kind','job_id','payment_method','payment_notes'])
           && d.payment_kind == 'client_payment' && d.amount_cents > 0 && d.client.size() > 0
           && short(d.job_id,180) && short(d.payment_notes,2000)
@@ -21,12 +21,19 @@ service cloud.firestore {
           && (d.job_id == '' || (d.job_id.matches('^[a-zA-Z0-9_-]+$')
             && exists(/databases/$(database)/documents/accounts/$(uid)/clients/$(d.job_id)))));
     }
+    function validPaymentProfile(d,uid) {
+      return !d.keys().hasAny(['profile_id'])
+        || (short(d.profile_id,180) && (d.profile_id == ''
+          || (d.profile_id.matches('^[a-zA-Z0-9_-]+$')
+            && exists(/databases/$(database)/documents/accounts/$(uid)/profiles/$(d.profile_id))
+            && (d.job_id == '' || d.job_id in get(/databases/$(database)/documents/accounts/$(uid)/profiles/$(d.profile_id)).data.job_ids))));
+    }
     function valid(d,table,uid) {
       let common = ['user_id','date','created_at','updated_at'];
       return base(d,uid) && (
-        (table == 'income' && d.keys().hasOnly(common.concat(['category','client','concept','amount_cents','payment_kind','job_id','payment_method','payment_notes']))
+        (table == 'income' && d.keys().hasOnly(common.concat(['category','client','concept','amount_cents','payment_kind','job_id','payment_method','payment_notes','profile_id']))
           && d.category in ['Bodas','Mascotas','Fallas','Fiestas','Sesiones','Ayuntamiento','Otros']
-          && short(d.client,180) && short(d.concept,500) && (d.client.size() > 0 || d.concept.size() > 0) && money(d.amount_cents) && validPayment(d,uid))
+          && short(d.client,180) && short(d.concept,500) && (d.client.size() > 0 || d.concept.size() > 0) && money(d.amount_cents) && validPayment(d,uid) && validPaymentProfile(d,uid))
         || (table == 'expenses' && d.keys().hasOnly(common.concat(['category','description','payment_method','amount_cents']))
           && d.category in ['Programas','Alquiler','Equipo / Material','Segundos','Gasolina','Laboratorio','Impuestos','Otros']
           && short(d.description,500) && d.description.size() > 0
