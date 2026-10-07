@@ -1,6 +1,6 @@
 // Cache only this app's public shell, never authentication or financial requests.
 const ROOT = new URL('./', self.location.href).pathname;
-const CACHE = 'cuentas-2027-shell-v3';
+const CACHE = 'cuentas-2027-shell-v4';
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll([ROOT,ROOT+'manifest.webmanifest',ROOT+'icon-192.png'])));
   self.skipWaiting();

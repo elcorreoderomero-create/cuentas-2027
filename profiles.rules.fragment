@@ -1,0 +1,18 @@
+    // Fichas de clientes: same private owner, independent of accounting records.
+    match /accounts/{uid}/profiles/{id} {
+      function validProfile(d) {
+        return d.keys().hasOnly(['user_id','created_at','updated_at','name','contact_name','tax_id','phone','email','address','notes','job_ids'])
+          && d.keys().hasAll(['user_id','created_at','updated_at','name','contact_name','tax_id','phone','email','address','notes','job_ids'])
+          && d.user_id == uid && d.created_at is timestamp && d.updated_at == request.time
+          && short(d.name,180) && d.name.size() > 0
+          && short(d.contact_name,180) && short(d.tax_id,30) && short(d.phone,40)
+          && short(d.email,254) && short(d.address,500) && short(d.notes,4000)
+          && d.job_ids is list && d.job_ids.size() <= 500;
+      }
+      allow read: if owner(uid);
+      allow create: if owner(uid) && validProfile(request.resource.data)
+        && request.resource.data.created_at == request.time;
+      allow update: if owner(uid) && validProfile(request.resource.data)
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.user_id == resource.data.user_id;
+    }
