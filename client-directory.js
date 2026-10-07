@@ -53,7 +53,7 @@ const CRMServices = {
   save: (data, entry) => uF('profiles', data, entry),
 };
 const crmEl = (type, props, ...children) => he.createElement(type, props, ...children);
-function CRMDirectory({jobs, online, onEditJob, seed, onSeedUsed}) {
+function CRMDirectory({jobs, online, onEditJob, onPayment, seed, onSeedUsed}) {
   const h = crmEl;
   const [profiles, setProfiles] = he.useState([]);
   const [loaded, setLoaded] = he.useState(false);
@@ -97,7 +97,7 @@ function CRMDirectory({jobs, online, onEditJob, seed, onSeedUsed}) {
       h('button', {className: 'btn', onClick: () => setRetry(value => value + 1)}, 'Reintentar fichas')),
     !loaded && !error && h('p', {role: 'status', className: 'muted'}, 'Cargando fichas…'),
     notice && h('p', {className: 'notice success', role: 'status'}, notice),
-    loaded && (profile ? h(CRMDetail, {profile, jobs, online,
+    loaded && (profile ? h(CRMDetail, {profile, jobs, online, onPayment,
       onBack: () => setSelected(null), onEdit: () => setEditor({entry: profile}), onEditJob}) :
       h(he.Fragment, null,
         h('label', {className: 'field crm-search'}, h('span', null, 'Buscar fichas'),
@@ -122,7 +122,7 @@ function CRMDirectory({jobs, online, onEditJob, seed, onSeedUsed}) {
     editor && h(CRMEditor, {entry: editor.entry, seed: editor.seed, profiles, jobs, online,
       onClose: () => setEditor(null), onSaved: () => {setEditor(null); setNotice('Ficha guardada.');}}));
 }
-function CRMDetail({profile, jobs, online, onBack, onEdit, onEditJob}) {
+function CRMDetail({profile, jobs, online, onBack, onEdit, onEditJob, onPayment}) {
   const h = crmEl, linked = crmJobs(profile, jobs), totals = crmTotals(linked);
   return h(he.Fragment, null,
     h('div', {className: 'crm-toolbar'}, h('button', {className: 'btn', onClick: onBack}, '← Todas las fichas'),
@@ -143,7 +143,9 @@ function CRMDetail({profile, jobs, online, onBack, onEdit, onEditJob}) {
         h('div', {className: 'record-amount'}, h('strong', {className: 'mono'}, $n(job.total_cents)),
           h('span', {className: 'small muted'}, `${$n(job.paid_cents)} cobrado`),
           h('span', {className: 'badge ' + (job.total_cents > job.paid_cents ? 'pending' : 'settled')}, `${$n(job.total_cents - job.paid_cents)} pendiente`)),
-        h('button', {className: 'btn', disabled: !online, onClick: () => onEditJob(job)}, 'Editar trabajo')))));
+        h('div', {className:'actions'},
+          onPayment && h('button', {className:'btn primary',disabled:!online,onClick:()=>onPayment(job)},'Registrar pago'),
+          h('button', {className: 'btn', disabled: !online, onClick: () => onEditJob(job)}, 'Editar trabajo'))))));
 }
 function CRMEditor({entry, seed, profiles, jobs, online, onClose, onSaved}) {
   const h = crmEl, initial = entry || {name: seed?.name || ''};

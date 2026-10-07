@@ -1,0 +1,70 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) {
+      return request.auth != null && request.auth.uid == uid && uid == 'OWNER_UID';
+    }
+    function money(value) { return value is int && value >= 0 && value <= 1000000000; }
+    function short(value,max) { return value is string && value.size() <= max; }
+    function date(value) {
+      return value is string && value.matches('^(20[2-9][0-9]|2100)-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$') && value >= '2026-01-01';
+    }
+    function base(d,uid) {
+      return d.user_id == uid && date(d.date) && d.created_at is timestamp && d.updated_at == request.time;
+    }
+    function validPayment(d,uid) {
+      return (!d.keys().hasAny(['payment_kind','job_id','payment_method','payment_notes']))
+        || (d.keys().hasAll(['payment_kind','job_id','payment_method','payment_notes'])
+          && d.payment_kind == 'client_payment' && d.amount_cents > 0 && d.client.size() > 0
+          && short(d.job_id,180) && short(d.payment_notes,2000)
+          && d.payment_method in ['Transferencia','Tarjeta','Efectivo','Bizum','Domiciliación','Otro','Banco','Sin especificar']
+          && (d.job_id == '' || (d.job_id.matches('^[a-zA-Z0-9_-]+$')
+            && exists(/databases/$(database)/documents/accounts/$(uid)/clients/$(d.job_id)))));
+    }
+    function valid(d,table,uid) {
+      let common = ['user_id','date','created_at','updated_at'];
+      return base(d,uid) && (
+        (table == 'income' && d.keys().hasOnly(common.concat(['category','client','concept','amount_cents','payment_kind','job_id','payment_method','payment_notes']))
+          && d.category in ['Bodas','Mascotas','Fallas','Fiestas','Sesiones','Ayuntamiento','Otros']
+          && short(d.client,180) && short(d.concept,500) && (d.client.size() > 0 || d.concept.size() > 0) && money(d.amount_cents) && validPayment(d,uid))
+        || (table == 'expenses' && d.keys().hasOnly(common.concat(['category','description','payment_method','amount_cents']))
+          && d.category in ['Programas','Alquiler','Equipo / Material','Segundos','Gasolina','Laboratorio','Impuestos','Otros']
+          && short(d.description,500) && d.description.size() > 0
+          && d.payment_method in ['Transferencia','Tarjeta','Efectivo','Bizum','Domiciliación','Otro'] && money(d.amount_cents))
+        || (table == 'clients' && d.keys().hasOnly(common.concat(['name','type','notes','total_cents','paid_cents','payment_total_cents']))
+          && short(d.name,180) && d.name.size() > 0 && short(d.type,180) && short(d.notes,2000)
+          && money(d.total_cents) && money(d.paid_cents) && d.paid_cents <= d.total_cents
+          && (!d.keys().hasAny(['payment_total_cents']) || (money(d.payment_total_cents) && d.payment_total_cents <= d.paid_cents)))
+        || (table == 'seconds' && d.keys().hasOnly(common.concat(['photographer','job','price_cents','paid_cents','payment_date']))
+          && short(d.photographer,180) && d.photographer.size() > 0 && short(d.job,500) && d.job.size() > 0
+          && money(d.price_cents) && money(d.paid_cents) && d.paid_cents <= d.price_cents
+          && (d.payment_date == null || date(d.payment_date)))
+      );
+    }
+    match /accounts/{uid}/{table}/{id} {
+      allow read: if owner(uid) && table in ['income','expenses','clients','seconds'];
+      allow create: if owner(uid) && valid(request.resource.data,table,uid) && request.resource.data.created_at == request.time;
+      allow update: if owner(uid) && valid(request.resource.data,table,uid)
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.user_id == resource.data.user_id;
+      allow delete: if owner(uid) && table in ['income','expenses','clients','seconds']
+        && (table != 'clients' || !resource.data.keys().hasAny(['payment_total_cents']) || resource.data.payment_total_cents == 0);
+    }
+    match /accounts/{uid}/profiles/{id} {
+      function validProfile(d) {
+        return d.keys().hasOnly(['user_id','created_at','updated_at','name','contact_name','tax_id','phone','email','address','notes','job_ids'])
+          && d.keys().hasAll(['user_id','created_at','updated_at','name','contact_name','tax_id','phone','email','address','notes','job_ids'])
+          && d.user_id == uid && d.created_at is timestamp && d.updated_at == request.time
+          && short(d.name,180) && d.name.size() > 0
+          && short(d.contact_name,180) && short(d.tax_id,30) && short(d.phone,40)
+          && short(d.email,254) && short(d.address,500) && short(d.notes,4000)
+          && d.job_ids is list && d.job_ids.size() <= 500;
+      }
+      allow read: if owner(uid);
+      allow create: if owner(uid) && validProfile(request.resource.data) && request.resource.data.created_at == request.time;
+      allow update: if owner(uid) && validProfile(request.resource.data)
+        && request.resource.data.created_at == resource.data.created_at
+        && request.resource.data.user_id == resource.data.user_id;
+    }
+  }
+}
